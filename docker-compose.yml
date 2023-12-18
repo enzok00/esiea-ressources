@@ -1,0 +1,82 @@
+version: '3.8'
+
+networks:
+  front-tier:
+  back-tier:
+
+services:
+  worker:
+    image: esiea-ressources-worker
+    networks:
+      - back-tier
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
+  vote:
+    build:
+      context: ./vote
+    ports:
+      - "5002:80"
+    networks:
+      - front-tier
+      - back-tier
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - ./vote:/usr/local/app
+
+  redis:
+    image: redis
+    networks:
+      - back-tier
+    volumes:
+      - "./healthchecks:/healthchecks"
+    healthcheck:
+      test: /healthchecks/redis.sh
+      interval: "5s"
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+    networks:
+      - back-tier
+    volumes:
+      - "db-data:/var/lib/postgresql/data"
+      - "./healthchecks:/healthchecks"
+    healthcheck:
+      test: /healthchecks/postgres.sh
+      interval: "5s"
+
+  seed-data:
+    image: esiea-ressources-seed-data
+    networks:
+      - front-tier
+    profiles:
+      - seed
+    depends_on:
+      vote:
+        condition: service_healthy
+    restart: "no"
+
+  result:
+    image: esiea-ressources-result
+    ports:
+      - "5001:80"
+      - "127.0.0.1:9229:9229"
+    networks:
+      - back-tier
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db-data:
